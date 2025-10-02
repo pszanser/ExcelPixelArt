@@ -128,90 +128,220 @@ class BannerOptions:
     bg_color: RGB = EXCEL_GREEN
     text_color: RGB = WHITE
     accent_color: RGB = WHITE  # for the "40"
-    outline_color: RGB = (70, 70, 70)
+    outline_color: RGB = (60, 60, 60)
     show_grid_texture: bool = True
-    grid_brightness: float = 0.18  # 0..1 lighten of bg for grid
     text_main: str = "40 LAT EXCELA"
     text_sub: str = "Wszystkiego najlepszego! — Piotr"
-    style: str = "XL"  # "XL" for big 40 + small subtitle, "Classic" single line
+    style: str = "ExcelBadge"  # ExcelBadge | MinimalXL | Classic
 
 def banner_to_pixel_grid(opts: BannerOptions) -> List[List[RGB]]:
-    """Render a banner into a grid of RGB pixels."""
-    scale = 6  # draw high-res then downsample for crisp letters
+    """Render a banner into a grid of RGB pixels with polished Excel-like styling."""
+
+    def map_to_palette(img: Image.Image, palette: List[RGB]) -> Image.Image:
+        # Quantize manually so thin lines snap to the intended palette and avoid washed-out tones.
+        px = img.load()
+        width, height = img.size
+        for y in range(height):
+            for x in range(width):
+                r, g, b = px[x, y]
+                best = palette[0]
+                best_dist = float("inf")
+                for pr, pg, pb in palette:
+                    dist = (r - pr) ** 2 + (g - pg) ** 2 + (b - pb) ** 2
+                    if dist < best_dist:
+                        best_dist = dist
+                        best = (pr, pg, pb)
+                px[x, y] = best
+        return img
+
+    scale = 12  # draw high-res then downsample for crisp pixel art
     W, H = int(opts.cols * scale), int(opts.rows * scale)
     base = Image.new("RGB", (W, H), opts.bg_color)
-    drawer = ImageDraw.Draw(base)
+    draw = ImageDraw.Draw(base)
 
-    # Optional subtle grid texture to evoke Excel sheets
+    grid_color = lighten(opts.bg_color, 0.18)
+    tile_color = darken(opts.bg_color, 0.20)
+    shadow_color = darken(opts.bg_color, 0.55)
+    palette: List[RGB] = [
+        opts.bg_color,
+        grid_color,
+        tile_color,
+        shadow_color,
+        opts.text_color,
+        opts.accent_color,
+        opts.outline_color,
+        WHITE,
+        BLACK,
+    ]
+
     if opts.show_grid_texture:
-        grid_color = lighten(opts.bg_color, opts.grid_brightness)
-        # verticals
-        for x in range(0, W, int(6 * scale)):
-            drawer.line([(x, 0), (x, H)], fill=grid_color, width=max(1, int(0.3 * scale)))
-        # horizontals
-        for y in range(0, H, int(6 * scale)):
-            drawer.line([(0, y), (W, y)], fill=grid_color, width=max(1, int(0.3 * scale)))
+        step = max(2, int(6 * scale))
+        line_width = max(1, int(0.25 * scale))
+        for x in range(0, W, step):
+            draw.line([(x, 0), (x, H)], fill=grid_color, width=line_width)
+        for y in range(0, H, step):
+            draw.line([(0, y), (W, y)], fill=grid_color, width=line_width)
 
-    # Improved typography: large "40" with outline, then "LAT EXCELA" aligned right to it.
-    font_big = load_font(int(H * 0.70))
-    font_mid = load_font(int(H * 0.35))
-    font_small = load_font(int(H * 0.22))
+    if opts.style == "ExcelBadge":
+        tile_w = max(int(W * 0.18), int(8 * scale))
+        margin = max(int(W * 0.02), int(0.6 * scale))
+        draw.rectangle([0, 0, tile_w, H], fill=tile_color)
 
-    if opts.style == "XL":
+        font_x = load_font(int(H * 0.55))
+        bbox_x = draw.textbbox((0, 0), "X", font=font_x)
+        x_w = bbox_x[2] - bbox_x[0]
+        x_h = bbox_x[3] - bbox_x[1]
+        draw.text(
+            ((tile_w - x_w) // 2, (H - x_h) // 2),
+            "X",
+            font=font_x,
+            fill=WHITE,
+        )
+
+        stroke_big = max(2, int(0.03 * H))
+        size_big = int(H * 0.68)
+        while True:
+            font_big = load_font(size_big)
+            bbox_big = draw.textbbox((0, 0), "40", font=font_big, stroke_width=stroke_big)
+            width_40 = bbox_big[2] - bbox_big[0]
+            if width_40 <= int((W - tile_w - 3 * margin) * 0.5) or size_big <= 18:
+                break
+            size_big -= 2
+
+        shadow_offset = max(1, int(0.02 * H))
+        x_40 = tile_w + margin
+        y_40 = int((H * 0.60 - (bbox_big[3] - bbox_big[1])) / 2)
+        draw.text(
+            (x_40 + shadow_offset, y_40 + shadow_offset),
+            "40",
+            font=font_big,
+            fill=shadow_color,
+        )
+        draw.text(
+            (x_40, y_40),
+            "40",
+            font=font_big,
+            fill=opts.accent_color,
+            stroke_width=stroke_big,
+            stroke_fill=opts.outline_color,
+        )
+
+        stroke_mid = max(1, int(0.02 * H))
+        size_mid = int(H * 0.34)
+        text_main = opts.text_main if opts.text_main.strip() else "40 LAT EXCELA"
+        while True:
+            font_mid = load_font(size_mid)
+            bbox_mid = draw.textbbox((0, 0), text_main, font=font_mid, stroke_width=stroke_mid)
+            if x_40 + width_40 + margin + (bbox_mid[2] - bbox_mid[0]) <= W - margin or size_mid <= 12:
+                break
+            size_mid -= 1
+        draw.text(
+            (x_40 + width_40 + margin, int(H * 0.18)),
+            text_main,
+            font=font_mid,
+            fill=opts.text_color,
+            stroke_width=stroke_mid,
+            stroke_fill=opts.outline_color,
+        )
+
+        text_sub = opts.text_sub if opts.text_sub.strip() else "Wszystkiego najlepszego! — Piotr"
+        stroke_small = max(1, int(0.018 * H))
+        font_small = load_font(int(H * 0.22))
+        bbox_small = draw.textbbox((0, 0), text_sub, font=font_small, stroke_width=stroke_small)
+        sub_width = bbox_small[2] - bbox_small[0]
+        draw.text(
+            ((W - sub_width) // 2, int(H * 0.66)),
+            text_sub,
+            font=font_small,
+            fill=opts.text_color,
+            stroke_width=stroke_small,
+            stroke_fill=opts.outline_color,
+        )
+
+    elif opts.style == "MinimalXL":
+        stroke_big = max(1, int(0.02 * H))
         text_40 = "40"
-        bbox_40 = drawer.textbbox((0, 0), text_40, font=font_big, stroke_width=max(1, int(0.04*H)))
-        w40, h40 = bbox_40[2] - bbox_40[0], bbox_40[3] - bbox_40[1]
+        size_big = int(H * 0.68)
+        while True:
+            font_big = load_font(size_big)
+            bbox_big = draw.textbbox((0, 0), text_40, font=font_big, stroke_width=stroke_big)
+            width_40 = bbox_big[2] - bbox_big[0]
+            if width_40 <= int(W * 0.42) or size_big <= 18:
+                break
+            size_big -= 2
 
-        x40 = int(W * 0.05)
-        y40 = int((H * 0.60 - h40) / 2)
+        x_40 = int(W * 0.05)
+        y_40 = int((H - (bbox_big[3] - bbox_big[1])) / 2)
+        draw.text(
+            (x_40, y_40),
+            text_40,
+            font=font_big,
+            fill=opts.accent_color,
+            stroke_width=stroke_big,
+            stroke_fill=opts.outline_color,
+        )
 
-        drawer.text((x40, y40), text_40, font=font_big,
-                    fill=opts.accent_color,
-                    stroke_width=max(2, int(0.03 * H)),
-                    stroke_fill=opts.outline_color)
+        text_main = opts.text_main if opts.text_main.strip() else "40 LAT EXCELA"
+        stroke_mid = max(1, int(0.018 * H))
+        size_mid = int(H * 0.32)
+        while True:
+            font_mid = load_font(size_mid)
+            bbox_mid = draw.textbbox((0, 0), text_main, font=font_mid, stroke_width=stroke_mid)
+            if x_40 + width_40 + int(W * 0.03) + (bbox_mid[2] - bbox_mid[0]) <= W - int(W * 0.05) or size_mid <= 14:
+                break
+            size_mid -= 1
+        draw.text(
+            (x_40 + width_40 + int(W * 0.03), int(H * 0.2)),
+            text_main,
+            font=font_mid,
+            fill=opts.text_color,
+            stroke_width=stroke_mid,
+            stroke_fill=opts.outline_color,
+        )
 
-        text_main = "LAT EXCELA"
-        bbox_main = drawer.textbbox((0,0), text_main, font=font_mid, stroke_width=max(1, int(0.025*H)))
-        wmain, hmain = bbox_main[2] - bbox_main[0], bbox_main[3] - bbox_main[1]
-        xmain = x40 + w40 + int(W * 0.03)
-        ymain = int(H * 0.18)
-        drawer.text((xmain, ymain), text_main, font=font_mid,
-                    fill=opts.text_color,
-                    stroke_width=max(1, int(0.025*H)),
-                    stroke_fill=opts.outline_color)
+        text_sub = opts.text_sub if opts.text_sub.strip() else "Wszystkiego najlepszego! — Piotr"
+        font_small = load_font(int(H * 0.20))
+        bbox_small = draw.textbbox((0, 0), text_sub, font=font_small)
+        sub_width = bbox_small[2] - bbox_small[0]
+        draw.text(
+            ((W - sub_width) // 2, int(H * 0.70)),
+            text_sub,
+            font=font_small,
+            fill=opts.text_color,
+        )
 
-        text_sub = opts.text_sub
-        bbox_sub = drawer.textbbox((0,0), text_sub, font=font_small, stroke_width=max(1, int(0.02*H)))
-        wsub = bbox_sub[2] - bbox_sub[0]
-        xsub = int((W - wsub) / 2)
-        ysub = int(H * 0.64)
-        drawer.text((xsub, ysub), text_sub, font=font_small,
-                    fill=opts.text_color,
-                    stroke_width=max(1, int(0.02*H)),
-                    stroke_fill=opts.outline_color)
-    else:
-        # Classic single line headline + subline
-        text_main = opts.text_main
-        bbox_main = drawer.textbbox((0,0), text_main, font=font_mid, stroke_width=max(1, int(0.02*H)))
-        wmain, hmain = bbox_main[2] - bbox_main[0], bbox_main[3] - bbox_main[1]
-        xmain = int((W - wmain) / 2); ymain = int(H * 0.18)
-        drawer.text((xmain, ymain), text_main, font=font_mid,
-                    fill=opts.text_color,
-                    stroke_width=max(1, int(0.02*H)),
-                    stroke_fill=opts.outline_color)
+    else:  # Classic
+        text_main = opts.text_main if opts.text_main.strip() else "40 LAT EXCELA"
+        stroke_mid = max(1, int(0.02 * H))
+        font_mid = load_font(int(H * 0.36))
+        bbox_mid = draw.textbbox((0, 0), text_main, font=font_mid, stroke_width=stroke_mid)
+        mid_width = bbox_mid[2] - bbox_mid[0]
+        draw.text(
+            ((W - mid_width) // 2, int(H * 0.18)),
+            text_main,
+            font=font_mid,
+            fill=opts.text_color,
+            stroke_width=stroke_mid,
+            stroke_fill=opts.outline_color,
+        )
 
-        text_sub = opts.text_sub
-        bbox_sub = drawer.textbbox((0,0), text_sub, font=font_small, stroke_width=max(1, int(0.02*H)))
-        wsub = bbox_sub[2] - bbox_sub[0]
-        xsub = int((W - wsub) / 2); ysub = int(H * 0.60)
-        drawer.text((xsub, ysub), text_sub, font=font_small,
-                    fill=opts.text_color,
-                    stroke_width=max(1, int(0.02*H)),
-                    stroke_fill=opts.outline_color)
+        text_sub = opts.text_sub if opts.text_sub.strip() else "Wszystkiego najlepszego! — Piotr"
+        stroke_small = max(1, int(0.018 * H))
+        font_small = load_font(int(H * 0.22))
+        bbox_small = draw.textbbox((0, 0), text_sub, font=font_small, stroke_width=stroke_small)
+        sub_width = bbox_small[2] - bbox_small[0]
+        draw.text(
+            ((W - sub_width) // 2, int(H * 0.60)),
+            text_sub,
+            font=font_small,
+            fill=opts.text_color,
+            stroke_width=stroke_small,
+            stroke_fill=opts.outline_color,
+        )
 
-    small = base.resize((opts.cols, opts.rows), Image.Resampling.LANCZOS)
-    pixels = [[small.getpixel((x, y)) for x in range(small.width)] for y in range(small.height)]
-    return pixels
+    small = base.resize((opts.cols, opts.rows), Image.Resampling.BOX)
+    small = map_to_palette(small, palette)
+    return [[small.getpixel((x, y)) for x in range(small.width)] for y in range(small.height)]
 
 # ---------------------------- Excel writer ----------------------------
 
@@ -307,7 +437,7 @@ with st.sidebar:
     st.markdown("---")
     st.subheader("Baner")
     banner_rows = st.slider("Wysokość banera (wiersze)", min_value=10, max_value=40, value=20, step=1)
-    banner_style = st.selectbox("Styl banera", ["XL", "Classic"], index=0)
+    banner_style = st.selectbox("Styl banera", ["ExcelBadge", "MinimalXL", "Classic"], index=0)
     banner_bg_hex = st.color_picker("Kolor tła banera", value="#107C41")
     banner_text_color_hex = st.color_picker("Kolor tekstu", value="#FFFFFF")
     banner_accent_hex = st.color_picker("Kolor akcentu (dla „40”)", value="#FFFFFF")
