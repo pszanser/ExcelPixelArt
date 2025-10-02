@@ -26,4 +26,4 @@ Projekt nie posiada testów automatycznych. Po modyfikacjach:
 - uruchom aplikację,
 - wgraj przykładowy obraz,
 - sprawdź podgląd mozaiki i banera,
-- pobierz wygenerowany arkusz i otwórz go w Excelu dla szybkiego smoke testu.
+- pobierz wygenerowany arkusz i otwórz go w Excelu dla szybkiego sprawdzenia
