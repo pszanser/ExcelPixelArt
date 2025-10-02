@@ -342,7 +342,7 @@ col_preview, col_actions = st.columns([2, 1])
 
 if uploaded is not None:
     img = Image.open(uploaded)
-    col_preview.image(img, caption="Podgląd wczytanego obrazu", use_column_width=True)
+    col_preview.image(img, caption="Podgląd wczytanego obrazu", use_container_width=True)
 
     mo = MosaicOptions(
         target_width=target_width,
@@ -389,8 +389,8 @@ if uploaded is not None:
 
     with col_preview:
         st.subheader("Podgląd mozaiki (piksele)")
-        st.image(preview_portrait, caption="Portret (siatka komórek)", use_column_width=True)
-        st.image(preview_banner, caption="Baner „40 lat Excela”", use_column_width=True)
+        st.image(preview_portrait, caption="Portret (siatka komórek)", use_container_width=True)
+        st.image(preview_banner, caption='Baner „40 lat Excela"', use_container_width=True)
 
     with col_actions:
         st.subheader("Generowanie pliku")
