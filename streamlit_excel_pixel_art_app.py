@@ -10,12 +10,9 @@ from openpyxl.styles import PatternFill
 from openpyxl.utils import get_column_letter
 
 RGB = Tuple[int, int, int]
-Pixel = Optional[RGB]  # None means leave unpainted (transparent)
+Pixel = Optional[RGB]
 
-# ---------------------------- Helpers ----------------------------
-
-EXCEL_GREEN: RGB = (16, 124, 65)      # #107C41
-DARK_EXCEL_GREEN: RGB = (8, 94, 47)   # darker accent
+EXCEL_GREEN: RGB = (16, 124, 65)
 WHITE: RGB = (255, 255, 255)
 BLACK: RGB = (0, 0, 0)
 
@@ -38,73 +35,126 @@ def darken(rgb: RGB, amount: float) -> RGB:
             clamp(int(g * (1 - amount))),
             clamp(int(b * (1 - amount))))
 
-def color_distance_sq(a: RGB, b: RGB) -> int:
-    return (a[0]-b[0])**2 + (a[1]-b[1])**2 + (a[2]-b[2])**2
+# ---------------- pixel font (5x7) for A-Z, 0-9 and a few symbols ----------------
+# Each glyph is a list of 7 strings, each string 5 chars '1'/'0'
+FONT_5x7 = {
+    "A": ["01110","10001","10001","11111","10001","10001","10001"],
+    "B": ["11110","10001","11110","10001","10001","10001","11110"],
+    "C": ["01111","10000","10000","10000","10000","10000","01111"],
+    "D": ["11110","10001","10001","10001","10001","10001","11110"],
+    "E": ["11111","10000","11110","10000","10000","10000","11111"],
+    "F": ["11111","10000","11110","10000","10000","10000","10000"],
+    "G": ["01110","10000","10000","10111","10001","10001","01110"],
+    "H": ["10001","10001","11111","10001","10001","10001","10001"],
+    "I": ["11111","00100","00100","00100","00100","00100","11111"],
+    "J": ["11111","00010","00010","00010","00010","10010","01100"],
+    "K": ["10001","10010","11100","10100","10010","10001","10001"],
+    "L": ["10000","10000","10000","10000","10000","10000","11111"],
+    "M": ["10001","11011","10101","10101","10001","10001","10001"],
+    "N": ["10001","11001","10101","10011","10001","10001","10001"],
+    "O": ["01110","10001","10001","10001","10001","10001","01110"],
+    "P": ["11110","10001","10001","11110","10000","10000","10000"],
+    "Q": ["01110","10001","10001","10001","10101","10010","01101"],
+    "R": ["11110","10001","10001","11110","10100","10010","10001"],
+    "S": ["01111","10000","10000","01110","00001","00001","11110"],
+    "T": ["11111","00100","00100","00100","00100","00100","00100"],
+    "U": ["10001","10001","10001","10001","10001","10001","01110"],
+    "V": ["10001","10001","10001","10001","10001","01010","00100"],
+    "W": ["10001","10001","10001","10101","10101","11011","10001"],
+    "X": ["10001","01010","00100","00100","00100","01010","10001"],
+    "Y": ["10001","01010","00100","00100","00100","00100","00100"],
+    "Z": ["11111","00001","00010","00100","01000","10000","11111"],
+    "0": ["01110","10001","10011","10101","11001","10001","01110"],
+    "1": ["00100","01100","00100","00100","00100","00100","01110"],
+    "2": ["01110","10001","00001","00010","00100","01000","11111"],
+    "3": ["11110","00001","00001","01110","00001","00001","11110"],
+    "4": ["00010","00110","01010","10010","11111","00010","00010"],
+    "5": ["11111","10000","11110","00001","00001","10001","01110"],
+    "6": ["01110","10000","11110","10001","10001","10001","01110"],
+    "7": ["11111","00001","00010","00100","01000","01000","01000"],
+    "8": ["01110","10001","10001","01110","10001","10001","01110"],
+    "9": ["01110","10001","10001","01111","00001","00001","01110"],
+    " ": ["00000","00000","00000","00000","00000","00000","00000"],
+    "-": ["00000","00000","00000","11111","00000","00000","00000"],
+}
 
-def load_font(preferred_size: int):
-    # Try a few common fonts; fall back to default bitmap
-    candidates = [
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-    ]
-    for p in candidates:
-        try:
-            return ImageFont.truetype(p, preferred_size)
-        except Exception:
-            pass
-    return ImageFont.load_default()
+def normalize_ascii(s: str) -> str:
+    repl = {
+        "Ą":"A","Ć":"C","Ę":"E","Ł":"L","Ń":"N","Ó":"O","Ś":"S","Ż":"Z","Ź":"Z",
+        "ą":"A","ć":"C","ę":"E","ł":"L","ń":"N","ó":"O","ś":"S","ż":"Z","ź":"Z",
+        "—":"-","–":"-"
+    }
+    return "".join(repl.get(ch, ch).upper() if ch.isalpha() or ch in repl else ch for ch in s)
 
-# ---------------------------- Core: pixel grids ----------------------------
+def text_size_cells(text: str, scale: int, spacing: int) -> int:
+    w = 0
+    for i, ch in enumerate(text):
+        if ch in FONT_5x7:
+            w += 5*scale
+            if i < len(text)-1:
+                w += spacing
+    return w
 
+def blit_glyph(grid, x, y, ch, color, scale=1):
+    glyph = FONT_5x7.get(ch)
+    if glyph is None:
+        return x  # skip unknown
+    rows, cols = 7, 5
+    for gy in range(rows):
+        row = glyph[gy]
+        for gx in range(cols):
+            if row[gx] == "1":
+                for sy in range(scale):
+                    for sx in range(scale):
+                        yy = y + gy*scale + sy
+                        xx = x + gx*scale + sx
+                        if 0 <= yy < len(grid) and 0 <= xx < len(grid[0]):
+                            grid[yy][xx] = color
+    return x + cols*scale
+
+def blit_text(grid, x, y, text, color, scale=1, spacing=1):
+    for i, ch in enumerate(text):
+        x = blit_glyph(grid, x, y, ch, color, scale)
+        if i < len(text)-1:
+            x += spacing
+    return x
+
+# ---------------- Mosaic from photo ----------------
 @dataclass
 class MosaicOptions:
     target_width: int = 120
     palette_colors: int = 32
     alpha_threshold: int = 20
-    remove_bg_mode: str = "alpha"   # "alpha", "auto-corners", "manual-color"
+    remove_bg_mode: str = "alpha"
     manual_bg_color: RGB = (200, 200, 200)
-    bg_threshold: int = 22          # color distance threshold for manual/auto background removal
+    bg_threshold: int = 22
 
 def image_to_pixel_grid(img, opts: MosaicOptions) -> List[List[Pixel]]:
-    """Convert an image to a 2D grid of pixels (RGB or None) according to options.
-    - If remove_bg_mode != "alpha", attempt to make background transparent by color similarity.
-    - The returned grid has width == target_width, height proportional to image.
-    """
     im = img.convert("RGBA")
-    # Optional: crude background removal by color similarity
     if opts.remove_bg_mode in ("auto-corners", "manual-color"):
         if opts.remove_bg_mode == "auto-corners":
-            # average the four corners as background reference
             w, h = im.size
-            sample = []
-            for (x, y) in [(0,0), (w-1,0), (0,h-1), (w-1,h-1)]:
-                sample.append(im.getpixel((x, y))[:3])
+            sample = [im.getpixel((x, y))[:3] for (x, y) in [(0,0), (w-1,0), (0,h-1), (w-1,h-1)]]
             ref = tuple(int(sum(c)/len(c)) for c in zip(*sample))
         else:
             ref = opts.manual_bg_color
         px = im.load()
         w, h = im.size
-        thr = opts.bg_threshold ** 2  # squared threshold
+        thr = opts.bg_threshold ** 2
         for y in range(h):
             for x in range(w):
                 r, g, b, a = px[x, y]
-                if a > 0:
-                    if color_distance_sq((r, g, b), ref) <= thr:
-                        # make it transparent
-                        px[x, y] = (r, g, b, 0)
+                if a > 0 and (r-ref[0])**2 + (g-ref[1])**2 + (b-ref[2])**2 <= thr:
+                    px[x, y] = (r, g, b, 0)
 
-    # Resize while preserving aspect ratio
     target_width = max(10, int(opts.target_width))
     target_height = max(10, int(target_width * im.height / im.width))
     small = im.resize((target_width, target_height), Image.Resampling.LANCZOS)
 
-    # Create a quantized RGB version for palette control (on white background to reduce fringe)
-    white_bg = Image.new("RGBA", small.size, (255, 255, 255, 255))
+    white_bg = Image.new("RGBA", small.size, (255,255,255,255))
     comp = Image.alpha_composite(white_bg, small)
     quantized = comp.convert("RGB").convert("P", palette=Image.Palette.ADAPTIVE, colors=int(opts.palette_colors)).convert("RGB")
 
-    # Build grid; use alpha to decide transparency
     grid: List[List[Pixel]] = []
     px_small = small.load()
     px_quant = quantized.load()
@@ -112,251 +162,83 @@ def image_to_pixel_grid(img, opts: MosaicOptions) -> List[List[Pixel]]:
         row: List[Pixel] = []
         for x in range(small.width):
             a = px_small[x, y][3]
-            if a <= opts.alpha_threshold:
-                row.append(None)
-            else:
-                row.append(px_quant[x, y])
+            row.append(None if a <= opts.alpha_threshold else px_quant[x, y])
         grid.append(row)
     return grid
 
-# ---------------------------- Banner generation ----------------------------
-
+# ---------------- Crisp Pixel Banner ----------------
 @dataclass
 class BannerOptions:
     cols: int
     rows: int = 20
     bg_color: RGB = EXCEL_GREEN
     text_color: RGB = WHITE
-    accent_color: RGB = WHITE  # for the "40"
-    outline_color: RGB = (60, 60, 60)
-    show_grid_texture: bool = True
-    text_main: str = "40 LAT EXCELA"
-    text_sub: str = "Wszystkiego najlepszego! — Piotr"
-    style: str = "ExcelBadge"  # ExcelBadge | MinimalXL | Classic
+    accent_color: RGB = WHITE
+    grid_texture: bool = True
+    style: str = "Pixel"  # only pixel renderer to guarantee clarity
+    headline: str = "40 LAT EXCELA"
+    subline: str = "Wszystkiego najlepszego! — Piotr"
 
 def banner_to_pixel_grid(opts: BannerOptions) -> List[List[RGB]]:
-    """Render a banner into a grid of RGB pixels with polished Excel-like styling."""
+    cols, rows = opts.cols, opts.rows
+    bg = opts.bg_color
+    grid: List[List[RGB]] = [[bg for _ in range(cols)] for _ in range(rows)]
 
-    def map_to_palette(img: Image.Image, palette: List[RGB]) -> Image.Image:
-        # Quantize manually so thin lines snap to the intended palette and avoid washed-out tones.
-        px = img.load()
-        width, height = img.size
-        for y in range(height):
-            for x in range(width):
-                r, g, b = px[x, y]
-                best = palette[0]
-                best_dist = float("inf")
-                for pr, pg, pb in palette:
-                    dist = (r - pr) ** 2 + (g - pg) ** 2 + (b - pb) ** 2
-                    if dist < best_dist:
-                        best_dist = dist
-                        best = (pr, pg, pb)
-                px[x, y] = best
-        return img
+    # Excel-like subtle grid texture
+    if opts.grid_texture and rows >= 12 and cols >= 40:
+        tex = lighten(bg, 0.15)
+        step = 6
+        for x in range(0, cols, step):
+            for y in range(rows):
+                grid[y][x] = tex
+        for y in range(0, rows, step):
+            for x in range(cols):
+                grid[y][x] = tex
 
-    scale = 12  # draw high-res then downsample for crisp pixel art
-    W, H = int(opts.cols * scale), int(opts.rows * scale)
-    base = Image.new("RGB", (W, H), opts.bg_color)
-    draw = ImageDraw.Draw(base)
+    # Decide scales to fit
+    max_scale = max(1, rows // 7)          # how many cell-rows per glyph row
+    scale_head = max(1, min(max_scale, int(rows * 0.75 // 7)))
+    if scale_head < 2 and max_scale >= 2:
+        scale_head = 2  # ensure legibility for typical 20-row banner
 
-    grid_color = lighten(opts.bg_color, 0.18)
-    tile_color = darken(opts.bg_color, 0.20)
-    shadow_color = darken(opts.bg_color, 0.55)
-    palette: List[RGB] = [
-        opts.bg_color,
-        grid_color,
-        tile_color,
-        shadow_color,
-        opts.text_color,
-        opts.accent_color,
-        opts.outline_color,
-        WHITE,
-        BLACK,
-    ]
+    spacing_head = max(1, scale_head) // 1
+    head = normalize_ascii(opts.headline)
+    # shrink until fits width
+    while text_size_cells(head, scale_head, spacing_head) > cols - 4 and scale_head > 1:
+        scale_head -= 1
 
-    if opts.show_grid_texture:
-        step = max(2, int(6 * scale))
-        line_width = max(1, int(0.25 * scale))
-        for x in range(0, W, step):
-            draw.line([(x, 0), (x, H)], fill=grid_color, width=line_width)
-        for y in range(0, H, step):
-            draw.line([(0, y), (W, y)], fill=grid_color, width=line_width)
+    # Place headline centered horizontally, near top
+    head_w = text_size_cells(head, scale_head, spacing_head)
+    x0 = max(2, (cols - head_w) // 2)
+    y0 = max(1, rows//6 - (7*scale_head)//2)
+    blit_text(grid, x0, y0, head, opts.text_color, scale=scale_head, spacing=spacing_head)
 
-    if opts.style == "ExcelBadge":
-        tile_w = max(int(W * 0.18), int(8 * scale))
-        margin = max(int(W * 0.02), int(0.6 * scale))
-        draw.rectangle([0, 0, tile_w, H], fill=tile_color)
+    # Subline (smaller)
+    sub = normalize_ascii(opts.subline)
+    scale_sub = max(1, min(max_scale, int(rows * 0.35 // 7)))
+    spacing_sub = 1
+    # shrink to fit
+    while text_size_cells(sub, scale_sub, spacing_sub) > cols - 4 and scale_sub > 1:
+        scale_sub -= 1
+    sub_w = text_size_cells(sub, scale_sub, spacing_sub)
+    xs = max(2, (cols - sub_w) // 2)
+    ys = rows - (7*scale_sub) - max(1, rows//10)
+    blit_text(grid, xs, ys, sub, opts.text_color, scale=scale_sub, spacing=spacing_sub)
 
-        font_x = load_font(int(H * 0.55))
-        bbox_x = draw.textbbox((0, 0), "X", font=font_x)
-        x_w = bbox_x[2] - bbox_x[0]
-        x_h = bbox_x[3] - bbox_x[1]
-        draw.text(
-            ((tile_w - x_w) // 2, (H - x_h) // 2),
-            "X",
-            font=font_x,
-            fill=WHITE,
-        )
+    return grid
 
-        stroke_big = max(2, int(0.03 * H))
-        size_big = int(H * 0.68)
-        while True:
-            font_big = load_font(size_big)
-            bbox_big = draw.textbbox((0, 0), "40", font=font_big, stroke_width=stroke_big)
-            width_40 = bbox_big[2] - bbox_big[0]
-            if width_40 <= int((W - tile_w - 3 * margin) * 0.5) or size_big <= 18:
-                break
-            size_big -= 2
-
-        shadow_offset = max(1, int(0.02 * H))
-        x_40 = tile_w + margin
-        y_40 = int((H * 0.60 - (bbox_big[3] - bbox_big[1])) / 2)
-        draw.text(
-            (x_40 + shadow_offset, y_40 + shadow_offset),
-            "40",
-            font=font_big,
-            fill=shadow_color,
-        )
-        draw.text(
-            (x_40, y_40),
-            "40",
-            font=font_big,
-            fill=opts.accent_color,
-            stroke_width=stroke_big,
-            stroke_fill=opts.outline_color,
-        )
-
-        stroke_mid = max(1, int(0.02 * H))
-        size_mid = int(H * 0.34)
-        text_main = opts.text_main if opts.text_main.strip() else "40 LAT EXCELA"
-        while True:
-            font_mid = load_font(size_mid)
-            bbox_mid = draw.textbbox((0, 0), text_main, font=font_mid, stroke_width=stroke_mid)
-            if x_40 + width_40 + margin + (bbox_mid[2] - bbox_mid[0]) <= W - margin or size_mid <= 12:
-                break
-            size_mid -= 1
-        draw.text(
-            (x_40 + width_40 + margin, int(H * 0.18)),
-            text_main,
-            font=font_mid,
-            fill=opts.text_color,
-            stroke_width=stroke_mid,
-            stroke_fill=opts.outline_color,
-        )
-
-        text_sub = opts.text_sub if opts.text_sub.strip() else "Wszystkiego najlepszego! — Piotr"
-        stroke_small = max(1, int(0.018 * H))
-        font_small = load_font(int(H * 0.22))
-        bbox_small = draw.textbbox((0, 0), text_sub, font=font_small, stroke_width=stroke_small)
-        sub_width = bbox_small[2] - bbox_small[0]
-        draw.text(
-            ((W - sub_width) // 2, int(H * 0.66)),
-            text_sub,
-            font=font_small,
-            fill=opts.text_color,
-            stroke_width=stroke_small,
-            stroke_fill=opts.outline_color,
-        )
-
-    elif opts.style == "MinimalXL":
-        stroke_big = max(1, int(0.02 * H))
-        text_40 = "40"
-        size_big = int(H * 0.68)
-        while True:
-            font_big = load_font(size_big)
-            bbox_big = draw.textbbox((0, 0), text_40, font=font_big, stroke_width=stroke_big)
-            width_40 = bbox_big[2] - bbox_big[0]
-            if width_40 <= int(W * 0.42) or size_big <= 18:
-                break
-            size_big -= 2
-
-        x_40 = int(W * 0.05)
-        y_40 = int((H - (bbox_big[3] - bbox_big[1])) / 2)
-        draw.text(
-            (x_40, y_40),
-            text_40,
-            font=font_big,
-            fill=opts.accent_color,
-            stroke_width=stroke_big,
-            stroke_fill=opts.outline_color,
-        )
-
-        text_main = opts.text_main if opts.text_main.strip() else "40 LAT EXCELA"
-        stroke_mid = max(1, int(0.018 * H))
-        size_mid = int(H * 0.32)
-        while True:
-            font_mid = load_font(size_mid)
-            bbox_mid = draw.textbbox((0, 0), text_main, font=font_mid, stroke_width=stroke_mid)
-            if x_40 + width_40 + int(W * 0.03) + (bbox_mid[2] - bbox_mid[0]) <= W - int(W * 0.05) or size_mid <= 14:
-                break
-            size_mid -= 1
-        draw.text(
-            (x_40 + width_40 + int(W * 0.03), int(H * 0.2)),
-            text_main,
-            font=font_mid,
-            fill=opts.text_color,
-            stroke_width=stroke_mid,
-            stroke_fill=opts.outline_color,
-        )
-
-        text_sub = opts.text_sub if opts.text_sub.strip() else "Wszystkiego najlepszego! — Piotr"
-        font_small = load_font(int(H * 0.20))
-        bbox_small = draw.textbbox((0, 0), text_sub, font=font_small)
-        sub_width = bbox_small[2] - bbox_small[0]
-        draw.text(
-            ((W - sub_width) // 2, int(H * 0.70)),
-            text_sub,
-            font=font_small,
-            fill=opts.text_color,
-        )
-
-    else:  # Classic
-        text_main = opts.text_main if opts.text_main.strip() else "40 LAT EXCELA"
-        stroke_mid = max(1, int(0.02 * H))
-        font_mid = load_font(int(H * 0.36))
-        bbox_mid = draw.textbbox((0, 0), text_main, font=font_mid, stroke_width=stroke_mid)
-        mid_width = bbox_mid[2] - bbox_mid[0]
-        draw.text(
-            ((W - mid_width) // 2, int(H * 0.18)),
-            text_main,
-            font=font_mid,
-            fill=opts.text_color,
-            stroke_width=stroke_mid,
-            stroke_fill=opts.outline_color,
-        )
-
-        text_sub = opts.text_sub if opts.text_sub.strip() else "Wszystkiego najlepszego! — Piotr"
-        stroke_small = max(1, int(0.018 * H))
-        font_small = load_font(int(H * 0.22))
-        bbox_small = draw.textbbox((0, 0), text_sub, font=font_small, stroke_width=stroke_small)
-        sub_width = bbox_small[2] - bbox_small[0]
-        draw.text(
-            ((W - sub_width) // 2, int(H * 0.60)),
-            text_sub,
-            font=font_small,
-            fill=opts.text_color,
-            stroke_width=stroke_small,
-            stroke_fill=opts.outline_color,
-        )
-
-    small = base.resize((opts.cols, opts.rows), Image.Resampling.BOX)
-    small = map_to_palette(small, palette)
-    return [[small.getpixel((x, y)) for x in range(small.width)] for y in range(small.height)]
-
-# ---------------------------- Excel writer ----------------------------
-
+# ---------------- Excel writer ----------------
 @dataclass
 class CellGeometry:
     col_width: float = 2.15
     row_height: float = 12.15
-    margin_top: int = 2       # empty rows before content
-    margin_left: int = 2      # empty columns before content
+    margin_top: int = 2
+    margin_left: int = 2
     spacer_rows: int = 2
 
 class FillCache:
     def __init__(self):
         self.cache: Dict[str, PatternFill] = {}
-
     def get(self, rgb: RGB) -> PatternFill:
         key = to_hex_argb(rgb)
         if key not in self.cache:
@@ -377,7 +259,7 @@ def paint_pixels(ws, start_row: int, start_col: int, grid: List[List[Pixel]], fi
             rgb = grid[y][x]
             if rgb is None:
                 if paint_background is None:
-                    continue   # leave unpainted
+                    continue
                 rgb = paint_background
             ws.cell(row=start_row + y, column=start_col + x).fill = fill_cache.get(rgb)
 
@@ -388,7 +270,6 @@ def build_workbook(portrait: List[List[Pixel]], banner: List[List[RGB]], geom: C
     ws.sheet_view.showGridLines = False
 
     fill_cache = FillCache()
-
     start_row = geom.margin_top
     start_col = geom.margin_left
 
@@ -397,16 +278,13 @@ def build_workbook(portrait: List[List[Pixel]], banner: List[List[RGB]], geom: C
         h2 = len(banner);   w2 = len(banner[0])   if h2 else 0
         ensure_square_cells(ws, start_row, h1, start_col, w1, geom)
         paint_pixels(ws, start_row, start_col, portrait, fill_cache, paint_background=background)
-
         for r in range(start_row + h1, start_row + h1 + geom.spacer_rows):
             ws.row_dimensions[r].height = 6
-
         ensure_square_cells(ws, start_row + h1 + geom.spacer_rows, h2, start_col, w2, geom)
         paint_pixels(ws, start_row + h1 + geom.spacer_rows, start_col, banner, fill_cache, paint_background=background)
     else:
         h1 = len(portrait); w1 = len(portrait[0]) if h1 else 0
         h2 = len(banner);   w2 = len(banner[0])   if h2 else 0
-
         rows = max(h1, h2)
         ensure_square_cells(ws, start_row, rows, start_col, w1 + geom.spacer_rows + w2, geom)
         paint_pixels(ws, start_row, start_col, portrait, fill_cache, paint_background=background)
@@ -417,62 +295,51 @@ def build_workbook(portrait: List[List[Pixel]], banner: List[List[RGB]], geom: C
     bio.seek(0)
     return bio.getvalue()
 
-# ---------------------------- Streamlit UI ----------------------------
-
-st.set_page_config(page_title="Excel Pixel Art — 40 lat Excela", page_icon=":bar_chart:", layout="wide")
-st.title("🎉 Excel Pixel Art — 40 lat Excela")
+# ---------------- Streamlit UI ----------------
+st.set_page_config(page_title="Excel Pixel Art — 40 lat Excela (crisp)", page_icon=":bar_chart:", layout="wide")
+st.title("🎉 Excel Pixel Art — 40 lat Excela (baner pixel-perfect)")
 
 with st.sidebar:
     st.header("⚙️ Ustawienia")
-
-    target_width = st.slider("Szerokość portretu (kolumny)", min_value=60, max_value=220, value=120, step=2)
-    palette_colors = st.slider("Liczba kolorów (paleta)", min_value=8, max_value=64, value=32, step=2)
-    alpha_threshold = st.slider("Próg przezroczystości (PNG alpha)", min_value=0, max_value=255, value=20, step=5)
-
-    remove_bg_mode = st.selectbox("Usuwanie tła", ["alpha", "auto-corners", "manual-color"], index=0,
-                                  help="alpha — użyj przezroczystości z PNG; auto-corners — próba wycięcia tła po kolorze narożników; manual-color — wskaż kolor tła.")
-    manual_bg_hex = st.color_picker("Kolor tła (dla trybu manual)", value="#C8C8C8")
-    bg_threshold = st.slider("Tolerancja usuwania tła (większa = agresywniej)", min_value=0, max_value=80, value=22)
+    target_width = st.slider("Szerokość portretu (kolumny)", 60, 220, 120, 2)
+    palette_colors = st.slider("Liczba kolorów (paleta)", 8, 64, 32, 2)
+    alpha_threshold = st.slider("Próg przezroczystości (PNG alpha)", 0, 255, 20, 5)
+    remove_bg_mode = st.selectbox("Usuwanie tła", ["alpha", "auto-corners", "manual-color"], index=0)
+    manual_bg_hex = st.color_picker("Kolor tła (manual)", "#C8C8C8")
+    bg_threshold = st.slider("Tolerancja usuwania tła", 0, 80, 22)
 
     st.markdown("---")
-    st.subheader("Baner")
-    banner_rows = st.slider("Wysokość banera (wiersze)", min_value=10, max_value=40, value=20, step=1)
-    banner_style = st.selectbox("Styl banera", ["ExcelBadge", "MinimalXL", "Classic"], index=0)
-    banner_bg_hex = st.color_picker("Kolor tła banera", value="#107C41")
-    banner_text_color_hex = st.color_picker("Kolor tekstu", value="#FFFFFF")
-    banner_accent_hex = st.color_picker("Kolor akcentu (dla „40”)", value="#FFFFFF")
-    show_grid_texture = st.checkbox("Tekstura siatki (subtelna)", value=True)
-
-    text_main_default = "40 LAT EXCELA"
-    text_sub_default = "Wszystkiego najlepszego! — Piotr"
-    text_main = st.text_input("Nagłówek", value=text_main_default)
-    text_sub = st.text_input("Podtytuł", value=text_sub_default)
+    st.subheader("Baner (pixel-perfect)")
+    banner_rows = st.slider("Wysokość banera (wiersze)", 12, 40, 20, 1)
+    banner_bg_hex = st.color_picker("Kolor tła banera", "#107C41")
+    banner_text_color_hex = st.color_picker("Kolor tekstu", "#FFFFFF")
+    banner_accent_hex = st.color_picker("Kolor akcentu", "#FFFFFF")  # kept for API compatibility
+    grid_texture = st.checkbox("Tekstura siatki Excela", value=True)
+    headline = st.text_input("Nagłówek", value="40 LAT EXCELA")
+    subline = st.text_input("Podtytuł", value="Wszystkiego najlepszego! — Piotr")
 
     st.markdown("---")
     st.subheader("Arkusz")
     layout = st.selectbox("Układ", ["vertical (góra+dół)", "side-by-side (obok siebie)"], index=0)
-    col_width = st.slider("Szerokość kolumn (Excel)", min_value=1.2, max_value=4.0, value=2.15, step=0.05)
-    row_height = st.slider("Wysokość wierszy (pkt)", min_value=8.0, max_value=22.0, value=12.15, step=0.1)
-    paint_background = st.checkbox("Maluj tło (zamiast zostawić białe)", value=False)
-    bg_fill_hex = st.color_picker("Kolor tła arkusza (jeśli malujesz tło)", value="#FFFFFF")
-    spacer_rows = st.slider("Przerwa między portretem a banerem (wiersze/kolumny)", min_value=0, max_value=6, value=2)
+    col_width = st.slider("Szerokość kolumn (Excel)", 1.2, 4.0, 2.15, 0.05)
+    row_height = st.slider("Wysokość wierszy (pkt)", 8.0, 22.0, 12.15, 0.1)
+    paint_background = st.checkbox("Maluj tło arkusza", value=False)
+    bg_fill_hex = st.color_picker("Kolor tła arkusza", "#FFFFFF")
+    spacer_rows = st.slider("Przerwa między portretem a banerem", 0, 6, 2)
 
-# Utility
+uploaded = st.file_uploader("Wrzuć zdjęcie (PNG z przezroczystością mile widziane, ale JPG też działa)", type=["png", "jpg", "jpeg", "webp"])
+
 def hex_to_rgb(hx: str) -> RGB:
     hx = hx.strip()
-    if hx.startswith("#"):
-        hx = hx[1:]
-    if len(hx) == 3:
-        hx = "".join([c*2 for c in hx])
+    if hx.startswith("#"): hx = hx[1:]
+    if len(hx) == 3: hx = "".join([c*2 for c in hx])
     return (int(hx[0:2], 16), int(hx[2:4], 16), int(hx[4:6], 16))
 
-uploaded = st.file_uploader("Wrzuć zdjęcie (PNG z przezroczystością mile widziane, ale JPG też działa)", type=["png", "jpg", "jpeg", "webp"], accept_multiple_files=False)
-
-col_preview, col_actions = st.columns([2, 1])
+col_preview, col_actions = st.columns([2,1])
 
 if uploaded is not None:
     img = Image.open(uploaded)
-    col_preview.image(img, caption="Podgląd wczytanego obrazu", use_container_width=True)
+    col_preview.image(img, caption="Podgląd zdjęcia", use_container_width=True)
 
     mo = MosaicOptions(
         target_width=target_width,
@@ -490,24 +357,22 @@ if uploaded is not None:
         bg_color=hex_to_rgb(banner_bg_hex),
         text_color=hex_to_rgb(banner_text_color_hex),
         accent_color=hex_to_rgb(banner_accent_hex),
-        show_grid_texture=show_grid_texture,
-        text_main=text_main if text_main.strip() else "40 LAT EXCELA",
-        text_sub=text_sub if text_sub.strip() else "Wszystkiego najlepszego! — Piotr",
-        style=banner_style
+        grid_texture=grid_texture,
+        headline=headline if headline.strip() else "40 LAT EXCELA",
+        subline=subline if subline.strip() else "Wszystkiego najlepszego! — Piotr",
     )
     banner_grid = banner_to_pixel_grid(bo)
 
     # Previews
     def grid_to_image(grid: List[List[Pixel]], bg: Optional[RGB]) -> Image.Image:
-        h = len(grid)
-        w = len(grid[0]) if h else 0
+        h = len(grid); w = len(grid[0]) if h else 0
         im = Image.new("RGB", (w, h), bg if bg is not None else WHITE)
         draw = ImageDraw.Draw(im)
         for y in range(h):
             for x in range(w):
                 pix = grid[y][x]
                 if pix is None:
-                    if bg is None:
+                    if bg is None: 
                         continue
                     pix = bg
                 draw.point((x, y), fill=pix)
@@ -515,28 +380,21 @@ if uploaded is not None:
 
     preview_bg = hex_to_rgb(bg_fill_hex) if paint_background else None
     preview_portrait = grid_to_image(portrait_grid, preview_bg).resize((len(portrait_grid[0])*4, len(portrait_grid)*4), Image.NEAREST)
-    preview_banner   = grid_to_image(banner_grid, preview_bg).resize((len(banner_grid[0])*4, len(banner_grid)*4), Image.NEAREST)
+    preview_banner   = grid_to_image(banner_grid,   preview_bg).resize((len(banner_grid[0])*4,   len(banner_grid)*4),   Image.NEAREST)
 
     with col_preview:
         st.subheader("Podgląd mozaiki (piksele)")
         st.image(preview_portrait, caption="Portret (siatka komórek)", use_container_width=True)
-        st.image(preview_banner, caption='Baner „40 lat Excela"', use_container_width=True)
+        st.image(preview_banner, caption='Baner „40 lat Excela” (pixel-perfect)', use_container_width=True)
 
     with col_actions:
         st.subheader("Generowanie pliku")
-        geom = CellGeometry(
-            col_width=col_width,
-            row_height=row_height,
-            margin_top=2,
-            margin_left=2,
-            spacer_rows=spacer_rows
-        )
+        geom = CellGeometry(col_width=col_width, row_height=row_height, margin_top=2, margin_left=2, spacer_rows=spacer_rows)
         layout_choice = "vertical" if layout.startswith("vertical") else "horizontal"
         bg_for_sheet = hex_to_rgb(bg_fill_hex) if paint_background else None
 
-        cells_portrait = len(portrait_grid) * len(portrait_grid[0])
-        cells_banner = len(banner_grid) * len(banner_grid[0])
-        st.caption(f"Szacunkowa liczba komórek: {cells_portrait + cells_banner:,}")
+        total_cells = len(portrait_grid) * len(portrait_grid[0]) + len(banner_grid) * len(banner_grid[0])
+        st.caption(f"Szacunkowa liczba komórek: {total_cells:,}")
 
         if st.button("🧩 Generuj plik Excel (.xlsx)"):
             xlsx_bytes = build_workbook(portrait_grid, banner_grid, geom, layout=layout_choice, background=bg_for_sheet)
