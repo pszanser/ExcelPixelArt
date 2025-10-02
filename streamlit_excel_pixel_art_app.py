@@ -297,7 +297,7 @@ def build_workbook(portrait: List[List[Pixel]], banner: List[List[RGB]], geom: C
 
 # ---------------- Streamlit UI ----------------
 st.set_page_config(page_title="Excel Pixel Art — 40 lat Excela (crisp)", page_icon=":bar_chart:", layout="wide")
-st.title("🎉 Excel Pixel Art — 40 lat Excela (baner pixel-perfect)")
+st.title("🎉 Excel Pixel Art - 40 lat z MS Excel")
 
 with st.sidebar:
     st.header("⚙️ Ustawienia")
