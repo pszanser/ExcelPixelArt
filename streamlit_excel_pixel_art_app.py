@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import List, Optional, Tuple, Dict
 
 import streamlit as st
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw
 from openpyxl import Workbook
 from openpyxl.styles import PatternFill
 from openpyxl.utils import get_column_letter
@@ -122,8 +122,8 @@ def blit_text(grid, x, y, text, color, scale=1, spacing=1):
 # ---------------- Mosaic from photo ----------------
 @dataclass
 class MosaicOptions:
-    target_width: int = 120
-    palette_colors: int = 32
+    target_width: int = 220
+    palette_colors: int = 64
     alpha_threshold: int = 20
     remove_bg_mode: str = "alpha"
     manual_bg_color: RGB = (200, 200, 200)
@@ -170,7 +170,7 @@ def image_to_pixel_grid(img, opts: MosaicOptions) -> List[List[Pixel]]:
 @dataclass
 class BannerOptions:
     cols: int
-    rows: int = 20
+    rows: int = 27
     bg_color: RGB = EXCEL_GREEN
     text_color: RGB = WHITE
     accent_color: RGB = WHITE
@@ -301,8 +301,8 @@ st.title("🎉 Excel Pixel Art - 40 lat z MS Excel")
 
 with st.sidebar:
     st.header("⚙️ Ustawienia")
-    target_width = st.slider("Szerokość portretu (kolumny)", 60, 220, 120, 2)
-    palette_colors = st.slider("Liczba kolorów (paleta)", 8, 64, 32, 2)
+    target_width = st.slider("Szerokość portretu (kolumny)", 60, 220, 220, 2)
+    palette_colors = st.slider("Liczba kolorów (paleta)", 8, 64, 64, 2)
     alpha_threshold = st.slider("Próg przezroczystości (PNG alpha)", 0, 255, 20, 5)
     remove_bg_mode = st.selectbox("Usuwanie tła", ["alpha", "auto-corners", "manual-color"], index=0)
     manual_bg_hex = st.color_picker("Kolor tła (manual)", "#C8C8C8")
@@ -310,7 +310,7 @@ with st.sidebar:
 
     st.markdown("---")
     st.subheader("Baner (pixel-perfect)")
-    banner_rows = st.slider("Wysokość banera (wiersze)", 12, 40, 20, 1)
+    banner_rows = st.slider("Wysokość banera (wiersze)", 12, 40, 27, 1)
     banner_bg_hex = st.color_picker("Kolor tła banera", "#107C41")
     banner_text_color_hex = st.color_picker("Kolor tekstu", "#FFFFFF")
     banner_accent_hex = st.color_picker("Kolor akcentu", "#FFFFFF")  # kept for API compatibility
