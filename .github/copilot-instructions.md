@@ -22,3 +22,6 @@
   - Przy nowych formatach eksportu ponownie wykorzystuj siatki z `image_to_pixel_grid` i `banner_to_pixel_grid`, zamiast liczyć piksele od zera.
   - Dodając style banera, wprowadzaj warunki w `banner_to_pixel_grid` i trzymaj powiązanie rozmiaru tekstu z liczbą wierszy (`rows`) tak jak w aktualnej implementacji.
   - Jeżeli wprowadzisz testy lub narzędzia CLI, umieszczaj je obok głównego skryptu i korzystaj z tych samych helperów, żeby nie duplikować logiki obrazu i Excela.
+
+  ## Commit messages
+  Wszystkie commity tylko w języku PL. Np. dodano funkcję X, poprawiono błąd Y, zaktualizowano dokumentację itp.
