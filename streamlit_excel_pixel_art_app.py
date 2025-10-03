@@ -263,7 +263,7 @@ def paint_pixels(ws, start_row: int, start_col: int, grid: List[List[Pixel]], fi
                 rgb = paint_background
             ws.cell(row=start_row + y, column=start_col + x).fill = fill_cache.get(rgb)
 
-def build_workbook(portrait: List[List[Pixel]], banner: List[List[RGB]], geom: CellGeometry, layout: str = "vertical", background: Optional[RGB] = None) -> bytes:
+def build_workbook(portrait: List[List[Pixel]], banner: Optional[List[List[RGB]]], geom: CellGeometry, layout: str = "vertical", background: Optional[RGB] = None) -> bytes:
     wb = Workbook()
     ws = wb.active
     ws.title = "Excel Pixel Art"
@@ -273,22 +273,30 @@ def build_workbook(portrait: List[List[Pixel]], banner: List[List[RGB]], geom: C
     start_row = geom.margin_top
     start_col = geom.margin_left
 
+    banner_has_content = banner is not None and len(banner) > 0 and len(banner[0]) > 0
+
     if layout == "vertical":
         h1 = len(portrait); w1 = len(portrait[0]) if h1 else 0
-        h2 = len(banner);   w2 = len(banner[0])   if h2 else 0
         ensure_square_cells(ws, start_row, h1, start_col, w1, geom)
         paint_pixels(ws, start_row, start_col, portrait, fill_cache, paint_background=background)
-        for r in range(start_row + h1, start_row + h1 + geom.spacer_rows):
-            ws.row_dimensions[r].height = 6
-        ensure_square_cells(ws, start_row + h1 + geom.spacer_rows, h2, start_col, w2, geom)
-        paint_pixels(ws, start_row + h1 + geom.spacer_rows, start_col, banner, fill_cache, paint_background=background)
+        if banner_has_content:
+            for r in range(start_row + h1, start_row + h1 + geom.spacer_rows):
+                ws.row_dimensions[r].height = 6
+            h2 = len(banner);   w2 = len(banner[0])   if h2 else 0
+            ensure_square_cells(ws, start_row + h1 + geom.spacer_rows, h2, start_col, w2, geom)
+            paint_pixels(ws, start_row + h1 + geom.spacer_rows, start_col, banner, fill_cache, paint_background=background)
     else:
         h1 = len(portrait); w1 = len(portrait[0]) if h1 else 0
-        h2 = len(banner);   w2 = len(banner[0])   if h2 else 0
-        rows = max(h1, h2)
-        ensure_square_cells(ws, start_row, rows, start_col, w1 + geom.spacer_rows + w2, geom)
-        paint_pixels(ws, start_row, start_col, portrait, fill_cache, paint_background=background)
-        paint_pixels(ws, start_row, start_col + w1 + geom.spacer_rows, banner, fill_cache, paint_background=background)
+        if banner_has_content:
+            h2 = len(banner);   w2 = len(banner[0])   if h2 else 0
+            rows = max(h1, h2)
+            total_cols = w1 + geom.spacer_rows + w2
+            ensure_square_cells(ws, start_row, rows, start_col, total_cols, geom)
+            paint_pixels(ws, start_row, start_col, portrait, fill_cache, paint_background=background)
+            paint_pixels(ws, start_row, start_col + w1 + geom.spacer_rows, banner, fill_cache, paint_background=background)
+        else:
+            ensure_square_cells(ws, start_row, h1, start_col, w1, geom)
+            paint_pixels(ws, start_row, start_col, portrait, fill_cache, paint_background=background)
 
     bio = io.BytesIO()
     wb.save(bio)
@@ -310,13 +318,17 @@ with st.sidebar:
 
     st.markdown("---")
     st.subheader("Baner")
-    banner_rows = st.slider("Wysokość banera (wiersze)", 12, 40, 27, 1)
-    banner_bg_hex = st.color_picker("Kolor tła banera", "#107C41")
-    banner_text_color_hex = st.color_picker("Kolor tekstu", "#FFFFFF")
-    banner_accent_hex = st.color_picker("Kolor akcentu", "#FFFFFF")  # kept for API compatibility
-    grid_texture = st.checkbox("Tekstura siatki Excela", value=True)
-    headline = st.text_input("Nagłówek", value="40 LAT EXCELA")
-    subline = st.text_input("Podtytuł", value="Wszystkiego najlepszego! — Piotr")
+    banner_enabled = st.checkbox("Generuj baner", value=True)
+    banner_rows = st.slider("Wysokość banera (wiersze)", 12, 40, 27, 1, disabled=not banner_enabled)
+    banner_bg_hex = st.color_picker("Kolor tła banera", "#107C41", disabled=not banner_enabled)
+    banner_text_color_hex = st.color_picker("Kolor tekstu", "#FFFFFF", disabled=not banner_enabled)
+    banner_accent_hex = st.color_picker("Kolor akcentu", "#FFFFFF", disabled=not banner_enabled)  # kept for API compatibility
+    grid_texture = st.checkbox("Tekstura siatki Excela", value=True, disabled=not banner_enabled)
+    headline = st.text_input("Nagłówek", value="40 LAT EXCELA", disabled=not banner_enabled)
+    subline = st.text_input("Podtytuł", value="Wszystkiego najlepszego! — Piotr", disabled=not banner_enabled)
+
+    if not banner_enabled:
+        st.caption("Baner wyłączony – wygenerujemy tylko mozaikę ze zdjęcia.")
 
     st.markdown("---")
     st.subheader("Arkusz")
@@ -351,17 +363,19 @@ if uploaded is not None:
     )
     portrait_grid = image_to_pixel_grid(img, mo)
 
-    bo = BannerOptions(
-        cols=len(portrait_grid[0]),
-        rows=banner_rows,
-        bg_color=hex_to_rgb(banner_bg_hex),
-        text_color=hex_to_rgb(banner_text_color_hex),
-        accent_color=hex_to_rgb(banner_accent_hex),
-        grid_texture=grid_texture,
-        headline=headline if headline.strip() else "40 LAT EXCELA",
-        subline=subline if subline.strip() else "Wszystkiego najlepszego! — Piotr",
-    )
-    banner_grid = banner_to_pixel_grid(bo)
+    banner_grid: Optional[List[List[RGB]]] = None
+    if banner_enabled:
+        bo = BannerOptions(
+            cols=len(portrait_grid[0]),
+            rows=banner_rows,
+            bg_color=hex_to_rgb(banner_bg_hex),
+            text_color=hex_to_rgb(banner_text_color_hex),
+            accent_color=hex_to_rgb(banner_accent_hex),
+            grid_texture=grid_texture,
+            headline=headline if headline.strip() else "40 LAT EXCELA",
+            subline=subline if subline.strip() else "Wszystkiego najlepszego! — Piotr",
+        )
+        banner_grid = banner_to_pixel_grid(bo)
 
     # Previews
     def grid_to_image(grid: List[List[Pixel]], bg: Optional[RGB]) -> Image.Image:
@@ -380,12 +394,17 @@ if uploaded is not None:
 
     preview_bg = hex_to_rgb(bg_fill_hex) if paint_background else None
     preview_portrait = grid_to_image(portrait_grid, preview_bg).resize((len(portrait_grid[0])*4, len(portrait_grid)*4), Image.NEAREST)
-    preview_banner   = grid_to_image(banner_grid,   preview_bg).resize((len(banner_grid[0])*4,   len(banner_grid)*4),   Image.NEAREST)
+    preview_banner = None
+    if banner_grid is not None:
+        preview_banner = grid_to_image(banner_grid, preview_bg).resize((len(banner_grid[0])*4, len(banner_grid)*4), Image.NEAREST)
 
     with col_preview:
         st.subheader("Podgląd mozaiki (piksele)")
         st.image(preview_portrait, caption="Portret (siatka komórek)", use_container_width=True)
-        st.image(preview_banner, caption='Baner „40 lat Excela” (pixel-perfect)', use_container_width=True)
+        if preview_banner is not None:
+            st.image(preview_banner, caption='Baner „40 lat Excela” (pixel-perfect)', use_container_width=True)
+        else:
+            st.caption("Baner został pominięty w tym projekcie.")
 
     with col_actions:
         st.subheader("Generowanie pliku")
@@ -393,7 +412,9 @@ if uploaded is not None:
         layout_choice = "vertical" if layout.startswith("vertical") else "horizontal"
         bg_for_sheet = hex_to_rgb(bg_fill_hex) if paint_background else None
 
-        total_cells = len(portrait_grid) * len(portrait_grid[0]) + len(banner_grid) * len(banner_grid[0])
+        total_cells = len(portrait_grid) * len(portrait_grid[0])
+        if banner_grid is not None:
+            total_cells += len(banner_grid) * len(banner_grid[0])
         st.caption(f"Szacunkowa liczba komórek: {total_cells:,}")
 
         if st.button("🧩 Generuj plik Excel (.xlsx)"):
