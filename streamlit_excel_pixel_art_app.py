@@ -297,11 +297,11 @@ def build_workbook(portrait: List[List[Pixel]], banner: List[List[RGB]], geom: C
 
 # ---------------- Streamlit UI ----------------
 st.set_page_config(page_title="Excel Pixel Art — 40 lat Excela (crisp)", page_icon=":bar_chart:", layout="wide")
-st.title("🎉 Excel Pixel Art - 40 lat z MS Excel")
+st.title("🎉 Excel Pixel Art - Świętujemy 40 lat z MS Excel")
 
 with st.sidebar:
     st.header("⚙️ Ustawienia")
-    target_width = st.slider("Szerokość portretu (kolumny)", 60, 220, 220, 2)
+    target_width = st.slider("Szerokość (kolumny)", 60, 220, 220, 2)
     palette_colors = st.slider("Liczba kolorów (paleta)", 8, 64, 64, 2)
     alpha_threshold = st.slider("Próg przezroczystości (PNG alpha)", 0, 255, 20, 5)
     remove_bg_mode = st.selectbox("Usuwanie tła", ["alpha", "auto-corners", "manual-color"], index=0)
@@ -309,7 +309,7 @@ with st.sidebar:
     bg_threshold = st.slider("Tolerancja usuwania tła", 0, 80, 22)
 
     st.markdown("---")
-    st.subheader("Baner (pixel-perfect)")
+    st.subheader("Baner")
     banner_rows = st.slider("Wysokość banera (wiersze)", 12, 40, 27, 1)
     banner_bg_hex = st.color_picker("Kolor tła banera", "#107C41")
     banner_text_color_hex = st.color_picker("Kolor tekstu", "#FFFFFF")
@@ -327,7 +327,7 @@ with st.sidebar:
     bg_fill_hex = st.color_picker("Kolor tła arkusza", "#FFFFFF")
     spacer_rows = st.slider("Przerwa między portretem a banerem", 0, 6, 2)
 
-uploaded = st.file_uploader("Wrzuć zdjęcie (PNG z przezroczystością mile widziane, ale JPG też działa)", type=["png", "jpg", "jpeg", "webp"])
+uploaded = st.file_uploader("Wrzuć zdjęcie, ustaw parametry mozaiki, sprawdź podgląd i pobierz gotowe dzieło w MS Excel 😁", type=["png", "jpg", "jpeg", "webp"])
 
 def hex_to_rgb(hx: str) -> RGB:
     hx = hx.strip()
@@ -401,4 +401,4 @@ if uploaded is not None:
             st.success("Gotowe! Pobierz plik poniżej:")
             st.download_button("⬇️ Pobierz Excel", data=xlsx_bytes, file_name="Excel_40_lat_pixel_art.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 else:
-    st.info("➡️ Wgraj obraz, aby zacząć. Najlepiej PNG z przezroczystością – wtedy tło w Excelu będzie czyste.")
+    st.info("➡️ Wgraj obraz, aby zacząć. Najlepiej PNG z przezroczystością – wtedy tło w Excelu będzie czyste. ")
