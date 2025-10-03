@@ -423,3 +423,15 @@ if uploaded is not None:
             st.download_button("⬇️ Pobierz Excel", data=xlsx_bytes, file_name="Excel_40_lat_pixel_art.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 else:
     st.info("➡️ Wgraj obraz, aby zacząć. Najlepiej PNG z przezroczystością – wtedy tło w Excelu będzie czyste. ")
+    st.markdown(
+        """
+        <div style='text-align: right; margin-top: 40px; font-size: 15px;'>
+            Najlepsze życzenia z okazji 40-lecia Excela składa<br/>
+            <strong>Piotr Szanser</strong>
+            <a href="https://www.linkedin.com/in/pszanser/" target="_blank" style="text-decoration: none;">
+                <img src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/linkedin/linkedin-original.svg" alt="LinkedIn" style="height: 20px; vertical-align: middle; margin-bottom: 2px;" />
+            </a>
+        </div>
+        """,
+        unsafe_allow_html=True,
+        )
