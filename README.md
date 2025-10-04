@@ -2,6 +2,8 @@
 
 Aplikacja Streamlit do zamiany obrazów na mozaikę pikseli oraz generowania arkuszy Excel z gotowym układem komórek.
 
+Dostępna na https://excel40lat.streamlit.app/
+
 ## Szybki start
 
 1. Zainstaluj zależności:
